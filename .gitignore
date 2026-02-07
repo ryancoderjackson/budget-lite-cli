@@ -1,0 +1,10 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment / OS noise
+.DS_Store
+Thumbs.db
+
+# Local data files (optional later)
+# data.json
