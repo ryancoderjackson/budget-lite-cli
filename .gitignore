@@ -6,5 +6,5 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Local data files (optional later)
-# data.json
+# Local data files
+data.json

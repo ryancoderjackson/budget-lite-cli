@@ -2,9 +2,11 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
+import csv
 
 
 DATA_FILE = Path("data.json")
+EXPORT_FILE = Path("transactions.csv")
 
 
 # ----------------------------
@@ -73,6 +75,49 @@ def prompt_date() -> str:
             return dt.strftime("%Y-%m-%d")
         except ValueError:
             print("Invalid date. Use YYYY-MM-DD (example: 2026-02-05).")
+
+
+def prompt_optional_nonempty(prompt: str, current: str) -> str:
+    value = input(prompt).strip()
+    return value if value else current
+
+
+def prompt_optional_type(current: str) -> str:
+    while True:
+        value = input("Type (income/expense) [Enter to keep current]: ").strip().lower()
+        if value == "":
+            return current
+        if value in {"income", "expense"}:
+            return value
+        print("Type must be 'income' or 'expense'.")
+
+
+def prompt_optional_amount(current: float) -> float:
+    while True:
+        value = input("Amount (e.g., 12.50) [Enter to keep current]: ").strip()
+        if value == "":
+            return float(current)
+        try:
+            amount = float(value)
+            if amount <= 0:
+                print("Amount must be greater than 0.")
+                continue
+            return round(amount, 2)
+        except ValueError:
+            print("Please enter a valid number (like 12.50).")
+
+
+def prompt_optional_date(current: str) -> str:
+    while True:
+        value = input("Date (YYYY-MM-DD) [Enter to keep current]: ").strip()
+        if value == "":
+            return current
+        try:
+            dt = datetime.strptime(value, "%Y-%m-%d")
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            print("Invalid date. Use YYYY-MM-DD (example: 2026-02-05).")
+
 
 
 # ----------------------------
@@ -262,21 +307,125 @@ def delete_transaction(transactions: list[dict]) -> None:
         return
 
 
+def edit_transaction(transactions: list[dict]) -> None:
+    print("\n=== Edit a Transaction ===")
+    if not transactions:
+        print("No transactions to edit.\n")
+        return
+
+    # Display in stable order
+    transactions_sorted = sorted(transactions, key=lambda t: str(t.get("date", "")))
+
+    for i, t in enumerate(transactions_sorted, start=1):
+        date = t.get("date", "????-??-??")
+        t_type = t.get("type", "?")
+        category = t.get("category", "")
+        desc = t.get("description", "")
+        amount = float(t.get("amount", 0) or 0)
+        sign = "+" if t_type == "income" else "-"
+        print(f"{i:>3}. {date} | {t_type:<7} | {category:<12} | {desc:<25} | {sign}${amount:.2f}")
+
+    while True:
+        choice = input("Enter the number to edit (or 'c' to cancel): ").strip().lower()
+        if choice == "c":
+            print("Canceled.\n")
+            return
+
+        try:
+            idx = int(choice)
+            if idx < 1 or idx > len(transactions_sorted):
+                print("That number isn't in the list.")
+                continue
+        except ValueError:
+            print("Enter a valid number, or 'c' to cancel.")
+            continue
+
+        t = transactions_sorted[idx - 1]
+
+        current_date = str(t.get("date", ""))
+        current_type = str(t.get("type", ""))
+        current_category = str(t.get("category", ""))
+        current_desc = str(t.get("description", ""))
+        current_amount = float(t.get("amount", 0) or 0)
+
+        print("\nPress Enter to keep the current value.")
+        print(f"Current date       : {current_date}")
+        print(f"Current type       : {current_type}")
+        print(f"Current category   : {current_category}")
+        print(f"Current description: {current_desc}")
+        print(f"Current amount     : {current_amount:.2f}\n")
+
+        new_date = prompt_optional_date(current_date)
+        new_type = prompt_optional_type(current_type)
+        new_category = prompt_optional_nonempty("Category [Enter to keep current]: ", current_category)
+        new_desc = prompt_optional_nonempty("Description [Enter to keep current]: ", current_desc)
+        new_amount = prompt_optional_amount(current_amount)
+
+        confirm = input("Save changes? (y/n): ").strip().lower()
+        if confirm != "y":
+            print("Not saved.\n")
+            return
+
+        # Update the dict in-place
+        t["date"] = new_date
+        t["type"] = new_type
+        t["category"] = new_category
+        t["description"] = new_desc
+        t["amount"] = new_amount
+
+        save_transactions(transactions)
+        print("✏️ Updated!\n")
+        return
+
+
+def export_to_csv(transactions: list[dict]) -> None:
+    print("\n=== Export to CSV ===")
+    if not transactions:
+        print("No transactions to export.\n")
+        return
+
+    # Create a stable, readable order (by date ascending)
+    transactions_sorted = sorted(transactions, key=lambda t: str(t.get("date", "")))
+
+    fieldnames = ["date", "type", "category", "description", "amount"]
+
+    try:
+        with EXPORT_FILE.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+
+            for t in transactions_sorted:
+                row = {
+                    "date": t.get("date", ""),
+                    "type": t.get("type", ""),
+                    "category": t.get("category", ""),
+                    "description": t.get("description", ""),
+                    "amount": t.get("amount", ""),
+                }
+                writer.writerow(row)
+
+        print(f"✅ Exported {len(transactions_sorted)} transactions to {EXPORT_FILE}\n")
+
+    except OSError as e:
+        print(f"Could not write CSV file: {e}\n")
+
 
 # ----------------------------
 # CLI loop
 # ----------------------------
 
 def menu() -> str:
-    print("=== Budget Lite v2 ===")
+    print("=== Budget Lite v3 ===")
     print("1) Add transaction")
     print("2) View all transactions")
     print("3) View summary")
     print("4) View transactions by month")
     print("5) Category totals (income/expense)")
     print("6) Delete a transaction")
-    print("7) Exit")
-    return input("Choose an option (1-7): ").strip()
+    print("7) Edit a transaction")
+    print("8) Export to CSV")
+    print("9) Exit")
+    return input("Choose an option (1-9): ").strip()
 
 
 def main() -> None:
@@ -297,10 +446,14 @@ def main() -> None:
         elif choice == "6":
             delete_transaction(transactions)
         elif choice == "7":
+            edit_transaction(transactions)
+        elif choice == "8":
+            export_to_csv(transactions)
+        elif choice == "9":
             print("Later, accountant. 👋")
             break
         else:
-            print("Pick a number from the menu (1-7).\n")
+            print("Pick a number from the menu (1-9).\n")
 
 
 if __name__ == "__main__":
